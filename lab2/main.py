@@ -168,6 +168,15 @@ def main():
     plt.ylim(-100, 600)  # Обмежуємо вісь Y, щоб побачити сильні осциляції при n=20
     plt.show()
 
+    print("\nЗапис результатів табуляції у файл results.txt...")
+    with open("results.txt", "w", encoding="utf-8") as f:
+        f.write("Розмір (n) | Прогноз часу (t)\n")
+        f.write("-" * 35 + "\n")
+        for xi, yi in zip(x_plot[::10], y_newton_plot[::10]):
+            f.write(f"{xi:10.0f} | {yi:10.2f} сек\n")
+    print("Готово!")
+
+
 
 if __name__ == "__main__":
     main()
