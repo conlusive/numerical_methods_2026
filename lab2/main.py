@@ -1,182 +1,149 @@
 import csv
 import numpy as np
 import matplotlib.pyplot as plt
-import math
+from scipy.interpolate import CubicSpline
+import os
 
 
-# ==========================================
-# 1. ЗЧИТУВАННЯ ДАНИХ
-# ==========================================
+# 1. Зчитування даних
 def read_data(filename):
-    """Зчитування даних з CSV файлу згідно з методичкою."""
-    x = []
-    y = []
-    with open(filename, 'r', newline='', encoding='utf-8') as file:
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    file_path = os.path.join(current_dir, filename)
+    x, y = [], []
+    with open(file_path, 'r', encoding='utf-8') as file:
         reader = csv.DictReader(file)
         for row in reader:
-            x.append(float(row['n']))
-            t_val = row.get('t') or row.get('Train time (sec)')  # Підтримка різних назв колонок
-            y.append(float(t_val))
+            x.append(float(row['Dataset size']))
+            y.append(float(row['Train time (sec)']))
     return np.array(x), np.array(y)
 
 
-# ==========================================
-# 2. ІНТЕРПОЛЯЦІЙНИЙ МНОГОЧЛЕН НЬЮТОНА
-# ==========================================
+x_data, y_data = read_data('data.csv')
+
+
+# 2. Метод Ньютона
 def divided_differences(x, y):
-    """Обчислення таблиці розділених різниць."""
     n = len(y)
     coef = np.zeros([n, n])
     coef[:, 0] = y
-
     for j in range(1, n):
         for i in range(n - j):
             coef[i][j] = (coef[i + 1][j - 1] - coef[i][j - 1]) / (x[i + j] - x[i])
     return coef[0, :]
 
 
-def newton_polynomial(x_data, y_data, x):
-    """Обчислення значення полінома Ньютона для заданого x."""
-    coef = divided_differences(x_data, y_data)
-    n = len(x_data)
-    result = coef[0]
+def newton_poly(coef, x_data, x):
+    n = len(coef) - 1
+    p = coef[n]
+    for k in range(1, n + 1):
+        p = coef[n - k] + (x - x_data[n - k]) * p
+    return p
 
-    for i in range(1, n):
-        term = coef[i]
-        for j in range(i):
-            term *= (x - x_data[j])
+
+# --- 3. Метод Лагранжа
+def lagrange_poly(x_nodes, y_nodes, x_val):
+    result = 0.0
+    n = len(x_nodes)
+    for i in range(n):
+        term = y_nodes[i]
+        for j in range(n):
+            if i != j:
+                term *= (x_val - x_nodes[j]) / (x_nodes[i] - x_nodes[j])
         result += term
     return result
 
 
-# ==========================================
-# 3. ФАКТОРІАЛЬНІ МНОГОЧЛЕНИ (Скінченні різниці)
-# ==========================================
-def finite_differences(y):
-    """Обчислення таблиці скінченних різниць для рівновіддалених вузлів."""
-    n = len(y)
-    diffs = np.zeros([n, n])
-    diffs[:, 0] = y
-    for j in range(1, n):
-        for i in range(n - j):
-            diffs[i][j] = diffs[i + 1][j - 1] - diffs[i][j - 1]
-    return diffs[0, :]
+# Підготовка: Сплайн як "еталон" для досліджень похибок
+true_func = CubicSpline(x_data, y_data)
+# Точки для плавного малювання графіків
+x_vals_plot = np.linspace(min(x_data), max(x_data), 500)
 
+# Розрахунок коефіцієнтів Ньютона для основного графіку
+coef = divided_differences(x_data, y_data)
+x_target = 120000
+y_pred = newton_poly(coef, x_data, x_target)
 
-def factorial_polynomial(y_data, t):
-    """Обчислення полінома через факторіальні многочлени."""
-    diffs = finite_differences(y_data)
-    n = len(y_data)
-    result = diffs[0]
+print(f"Прогноз для 120000: {y_pred:.4f} сек")
 
-    for i in range(1, n):
-        term = diffs[i] / math.factorial(i)
-        for j in range(i):
-            term *= (t - j)
-        result += term
-    return result
+# ГРАФІК 1: ОСНОВНИЙ ПРОГНОЗ
+plt.figure(figsize=(10, 6))
+plt.title("Графік 1: Інтерполяція Ньютона та Прогноз")
 
+# Малюємо лінію полінома
+y_vals_newton = [newton_poly(coef, x_data, xi) for xi in x_vals_plot]
+plt.plot(x_vals_plot, y_vals_newton, label="Поліном Ньютона", color='blue')
 
-# ==========================================
-# 4. ГОЛОВНА ФУНКЦІЯ ТА ДОСЛІДЖЕННЯ
-# ==========================================
-def main():
-    # Зчитування даних
-    x_data, y_data = read_data("data.csv")
-    print(f"Вхідні дані (Розмір датасету): {x_data}")
-    print(f"Вхідні дані (Час тренування): {y_data}")
+# Малюємо точки
+plt.scatter(x_data, y_data, color='red', s=50, zorder=5, label="Дані з CSV")
+plt.scatter(x_target, y_pred, color='green', marker='X', s=150, zorder=6, label=f"Прогноз ({y_pred:.1f})")
 
-    # Завдання 2: Оцінка часу для 120000
-    x_target = 120000
+plt.xlabel("Розмір датасету")
+plt.ylabel("Час (сек)")
+plt.legend()
+plt.grid(True)
 
-    # Метод Ньютона
-    pred_newton = newton_polynomial(x_data, y_data, x_target)
-    print(f"\nПрогноз для {x_target} (Метод Ньютона): {pred_newton:.2f} сек")
+# ГРАФІК 2: ЕФЕКТ РУНГЕ (Фіксований інтервал)
+plt.figure(figsize=(10, 6))
+plt.title("Графік 2: Ефект Рунге (Фіксований інтервал [10k, 160k])")
 
-    # Метод факторіальних многочленів
-    # Оскільки факторіальні многочлени вимагають рівновіддалених вузлів,
-    # ми генеруємо рівномірну сітку, знаходимо на ній значення (за допомогою Ньютона),
-    # а потім застосовуємо формулу факторіального многочлена.
-    h = (x_data[-1] - x_data[0]) / (len(x_data) - 1)
-    x_uniform = np.linspace(x_data[0], x_data[-1], len(x_data))
-    y_uniform = [newton_polynomial(x_data, y_data, xi) for xi in x_uniform]
+for n in [5, 10, 20]:
+    x_nodes = np.linspace(min(x_data), max(x_data), n)
+    y_nodes = true_func(x_nodes)
 
-    t_target = (x_target - x_data[0]) / h
-    pred_factorial = factorial_polynomial(y_uniform, t_target)
-    print(f"Прогноз для {x_target} (Факторіальні многочлени): {pred_factorial:.2f} сек")
+    coef_n = divided_differences(x_nodes, y_nodes)
+    y_interp = [newton_poly(coef_n, x_nodes, xi) for xi in x_vals_plot]
 
-    # ==========================================
-    # ПОБУДОВА ГРАФІКІВ (Основна крива)
-    # ==========================================
-    x_plot = np.linspace(min(x_data), max(x_data), 500)
-    y_newton_plot = [newton_polynomial(x_data, y_data, xi) for xi in x_plot]
+    error = np.abs(true_func(x_vals_plot) - y_interp)
+    plt.plot(x_vals_plot, error, label=f"n={n} вузлів")
 
-    plt.figure(figsize=(10, 6))
-    plt.plot(x_plot, y_newton_plot, label="Інтерполяція Ньютона", color='blue')
-    plt.scatter(x_data, y_data, color='red', s=50, label="Експериментальні дані", zorder=5)
-    plt.scatter([x_target], [pred_newton], color='green', s=80, marker='*', label=f"Прогноз ({x_target})", zorder=5)
+plt.xlabel("Розмір датасету")
+plt.ylabel("Похибка (лог. шкала)")
+plt.yscale("log")
+plt.legend()
+plt.grid(True)
 
-    plt.title("Прогноз часу тренування моделі машинного навчання (Варіант 3)")
-    plt.xlabel("Розмір датасету (n)")
-    plt.ylabel("Час тренування, сек")
-    plt.legend()
-    plt.grid(True)
-    plt.show()
+# ГРАФІК 3: ЗМІННИЙ ІНТЕРВАЛ (Фіксований крок)
+plt.figure(figsize=(10, 6))
+plt.title("Графік 3: Фіксований крок h=10k (Змінний інтервал)")
 
-    # ==========================================
-    # ДОСЛІДЖЕННЯ ЕФЕКТУ РУНГЕ (n=5, 10, 20)
-    # ==========================================
-    print("\n--- Дослідження ефекту Рунге та впливу кількості вузлів ---")
+h = 10000
+start = min(x_data)
 
-    # Для демонстрації ефекту Рунге використаємо базову функцію, яка описує наші дані
-    # Апроксимуємо ідеальну гладку криву (f(x) ~ a * x^b)
-    def true_function(x):
-        return 8 * (x / 10000) ** 1.42
+for n in [5, 10, 15]:
+    # Формуємо вузли зі сталим кроком
+    x_nodes = np.array([start + i * h for i in range(n)])
+    y_nodes = true_func(x_nodes)
 
-    a, b = min(x_data), max(x_data)
-    nodes_list = [5, 10, 20]
+    coef_n = divided_differences(x_nodes, y_nodes)
 
-    plt.figure(figsize=(12, 8))
-    x_dense = np.linspace(a, b, 1000)
-    plt.plot(x_dense, true_function(x_dense), 'k--', label="Гладкий тренд (еталон)", linewidth=2)
+    # Малюємо тільки в межах поточного інтервалу
+    current_x_plot = np.linspace(min(x_nodes), max(x_nodes), 200)
+    y_interp = [newton_poly(coef_n, x_nodes, xi) for xi in current_x_plot]
 
-    for n in nodes_list:
-        # Генеруємо вузли
-        x_nodes = np.linspace(a, b, n)
-        y_nodes = true_function(x_nodes)
+    error = np.abs(true_func(current_x_plot) - y_interp)
+    plt.plot(current_x_plot, error, label=f"n={n} (до {int(x_nodes[-1])})")
 
-        # Обчислюємо інтерполяцію Ньютона для цих вузлів
-        y_interp = [newton_polynomial(x_nodes, y_nodes, xi) for xi in x_dense]
+plt.xlabel("Розмір датасету")
+plt.ylabel("Похибка (лог. шкала)")
+plt.yscale("log")
+plt.legend()
+plt.grid(True)
 
-        # Табуляція з кроком h = (b-a)/20n
-        step_h = (b - a) / (20 * n)
-        x_tab = np.arange(a, b, step_h)
-        y_tab = [newton_polynomial(x_nodes, y_nodes, xi) for xi in x_tab]
+# ГРАФІК 4: ВІЗУАЛЬНЕ ПОРІВНЯННЯ (Дві лінії)
+plt.figure(figsize=(10, 6))
+plt.title("Графік 4: Візуальне порівняння Ньютона та Лагранжа")
 
-        # Графік
-        plt.plot(x_dense, y_interp, label=f"Інтерполяція (n={n})")
+# 1. Малюємо Ньютона (товста синя лінія)
+# Ми вже рахували y_vals_newton для першого графіка, беремо їх звідти
+plt.plot(x_vals_plot, y_vals_newton, label="Метод Ньютона", color='blue', linewidth=5, alpha=0.3)
 
-        # Обчислення максимальної похибки
-        error = [abs(true_function(xi) - newton_polynomial(x_nodes, y_nodes, xi)) for xi in x_tab]
-        print(f"Максимальна похибка для n={n}: {max(error):.4f}")
+# 2. Малюємо Лагранжа (червоний пунктир поверх)
+y_vals_lagrange = [lagrange_poly(x_data, y_data, xi) for xi in x_vals_plot]
+plt.plot(x_vals_plot, y_vals_lagrange, label="Метод Лагранжа", color='red', linestyle='--', linewidth=2)
 
-    plt.title("Дослідження ефекту Рунге (Осциляції полінома при великій кількості вузлів)")
-    plt.xlabel("Розмір датасету")
-    plt.ylabel("Час тренування")
-    plt.legend()
-    plt.grid(True)
-    plt.ylim(-100, 600)  # Обмежуємо вісь Y, щоб побачити сильні осциляції при n=20
-    plt.show()
+plt.xlabel("Розмір датасету")
+plt.ylabel("Час (сек)")
+plt.legend()
+plt.grid(True)
 
-    print("\nЗапис результатів табуляції у файл results.txt...")
-    with open("results.txt", "w", encoding="utf-8") as f:
-        f.write("Розмір (n) | Прогноз часу (t)\n")
-        f.write("-" * 35 + "\n")
-        for xi, yi in zip(x_plot[::10], y_newton_plot[::10]):
-            f.write(f"{xi:10.0f} | {yi:10.2f} сек\n")
-    print("Готово!")
-
-
-
-if __name__ == "__main__":
-    main()
+plt.show()
