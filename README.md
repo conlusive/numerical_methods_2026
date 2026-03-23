@@ -1,1 +1,0 @@
-# numerical_methods_2026
